@@ -1,0 +1,26 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: A Tamplate to create Schema for Schema registry 
+Parameters:
+  SecurityGroupIds:
+    Type: List<AWS::EC2::SecurityGroup::Id>
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+  VPCIds:
+    Type: List<AWS::EC2::VPC::Id>
+  ClusterName:
+    Type: String
+    Default: TestCluster
+  KubernetesVersion:
+    Type: String
+    AllowedValues: [ "1.18", "1.17", "1.16", "1.15" ]
+    Default: "1.18"
+Resources:
+  MyCluster:
+   Type: AWS::EKS::Cluster
+   Properties: 
+    Name: !Ref ClusterName
+    ResourcesVpcConfig: 
+      SecurityGroupIds: !Ref SecurityGroupIds
+      SubnetIds: !Ref SubnetIds
+    RoleArn: arn:aws:iam::647587844964:role/awseksrole
+    Version: !Ref KubernetesVersion
