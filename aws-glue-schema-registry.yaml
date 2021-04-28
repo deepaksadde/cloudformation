@@ -3,7 +3,6 @@ Description: Template to Create AWS Glue Schema Registry and Schema
 Metadata:
  Template Authors: Capgemini
  Template Version: 1
- Template Repository: https://stash.barcapoint.com:8443/projects/BFACLOUD/repos/aws-glue-schema-registry
 Parameters:
  ResourceType:
   Type: String
