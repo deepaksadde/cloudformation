@@ -1,0 +1,91 @@
+AWSTemplateFormatVersion: 2010-09-09  
+Description: Template to Create AWS Glue Schema Registry and Schema
+Metadata:
+ Template Authors: Capgemini
+ Template Version: 1
+ Template Repository: https://stash.barcapoint.com:8443/projects/BFACLOUD/repos/aws-glue-schema-registry
+Parameters:
+ ResourceType:
+  Type: String
+  AllowedValues: ['Registry', 'Schema','RegistryAndSchemaBoth','NewSchemaVersion']
+ RegistryName:
+  Type: String
+  Default: '' 
+ SchemaName:
+  Type: String
+  Default: ''
+ SchemaDescription:
+  Type: String
+  Default: ''
+ SchemaDefinitionDetails:
+  Type: String
+  Default: '' 
+ CompatibilityDetail:
+  Type: String
+  Default: 'BACKWARD'
+  AllowedValues: ['NONE', 'DISABLED', 'BACKWARD','BACKWARD_ALL','FORWARD','FORWARD_ALL','FULL','FULL_ALL']
+Conditions:
+ CreateRegistry: !Or 
+   -  !Equals [!Ref ResourceType, Registry]
+   -  !Equals [!Ref ResourceType, RegistryAndSchemaBoth]
+ CreateSchema: !Or 
+   -  !Equals [!Ref ResourceType, Schema]
+   -  !Equals [!Ref ResourceType, RegistryAndSchemaBoth]
+ CreateSchemaVersion: !Equals [!Ref ResourceType, NewSchemaVersion]
+ CreateBoth: !Equals [!Ref ResourceType, RegistryAndSchemaBoth]
+Resources:
+  CreateBothResource: 
+    Condition: CreateBoth
+    DependsOn: BFASchemaRegistry
+    Type: "AWS::CloudFormation::WaitConditionHandle"
+
+  WaitHandle: 
+    Type: "AWS::CloudFormation::WaitConditionHandle"
+
+  WaitCondition: 
+    Type: "AWS::CloudFormation::WaitCondition"
+    Properties: 
+      Handle: !If [CreateBoth, !Ref CreateBothResource, !Ref WaitHandle]
+      Timeout: "5"
+      Count: 0
+  BFASchemaRegistry:
+    Type: AWS::Glue::Registry
+    Condition: CreateRegistry
+    Properties: 
+     Description: AWS Glue Schema Registry for BFA
+     Name: !Ref RegistryName 
+  BFASchema:
+   Type: AWS::Glue::Schema
+   Condition: CreateSchema
+   DependsOn: WaitCondition
+   Properties: 
+    CheckpointVersion: {
+      IsLatest: Yes,
+      VersionNumber: 1}
+    Compatibility: !Ref CompatibilityDetail
+    DataFormat: AVRO
+    Description: !Ref SchemaDescription
+    Name: !Ref SchemaName
+    Registry: {Name: !Ref RegistryName}
+    SchemaDefinition: !Ref SchemaDefinitionDetails
+  NewSchemaVersion:
+   Type: AWS::Glue::SchemaVersion
+   Condition: CreateSchemaVersion
+   Properties: 
+    Schema: {
+        RegistryName: !Ref RegistryName,
+        SchemaName: !Ref SchemaName}
+    SchemaDefinition: !Ref SchemaDefinitionDetails 
+Outputs:
+  GlueResitry:
+    Description: AWS Glue Schema Registry
+    Value: !Ref BFASchemaRegistry
+    Condition: CreateRegistry
+  GlueSchema:
+    Description: AWS Glue Schema 
+    Value: !Ref BFASchema
+    Condition: CreateSchema
+  GlueSchemaVersion:
+    Description: AWS Glue Schema Version
+    Value: !Ref NewSchemaVersion
+    Condition: CreateSchemaVersion
