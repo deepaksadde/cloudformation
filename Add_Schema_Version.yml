@@ -1,0 +1,21 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: A Tamplate to create Schema for Schema registry 
+Parameters:
+ RegistryNameforYourNewSchema:
+  Type: String
+  Default: registry
+ SchemaDefinitionDetails:
+  Type: String
+ SchemaNameforNewVersion:
+  Type: String
+  Default: Schema
+Resources:
+  NewSchemaVersion:
+   Type: AWS::Glue::SchemaVersion
+   Properties: 
+    Schema: {
+        RegistryName: !Ref RegistryNameforYourNewSchema,
+        SchemaName: !Ref SchemaNameforNewVersion
+}
+      
+    SchemaDefinition: !Ref SchemaDefinitionDetails

@@ -1,0 +1,41 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: A Tamplate to create Schema for Schema registry 
+Parameters:
+ RegistryName:
+  Type: String
+  Default: registry
+ SchemaName:
+  Type: String
+  Default: Schema
+ SchemaDescription:
+  Type: String
+  Default: BFA Schema Description 
+ SchemaDefinitionDetails:
+  Type: String
+  
+Resources:
+  BFASchemaRegistry:
+    Type: 'AWS::Glue::Registry'
+    Properties: 
+     Description: AWS Glue Schema Registry for BFA
+     Name: !Ref RegistryName
+     Tags: 
+      - Key: name
+        Value: bfa
+  BFASchema:
+   Type: AWS::Glue::Schema
+   Properties: 
+    Compatibility: NONE
+    DataFormat: AVRO
+    Description: !Ref SchemaDescription
+    Name: !Ref SchemaName
+    Registry: {
+        
+       Name: !Ref RegistryName
+}
+    SchemaDefinition: !Ref SchemaDefinitionDetails
+    Tags: 
+     - Key: name
+       Value: bfa
+
+ 

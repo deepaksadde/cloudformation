@@ -1,0 +1,45 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: A Tamplate to create Schema for Schema registry 
+Metadata:
+ Template Authors: Capgemini 
+ Template Version: 1
+ Template Repository: https://stash.barcapint.com:8443/projects/BFACLOUD/repos/kafka-ec2-cluster/
+ AWSServices: AWS Glue Schema of Schema Registry 
+Parameters:
+ RegistryNameforYourSchema:
+  Type: String
+  Default: registry
+ SchemaName:
+  Type: String
+  Default: Schema
+ SchemaDescription:
+  Type: String
+  Default: BFA Schema Description 
+ SchemaDefinitionDetails:
+  Type: String
+ CompatibilityDetail:
+  Type: String
+  Default: BACKWARD
+  
+Resources:
+  BFASchema:
+   Type: AWS::Glue::Schema
+   Properties: 
+    CheckpointVersion: {
+        IsLatest: Yes,
+        VersionNumber: 1
+}
+    Compatibility: !Ref CompatibilityDetail
+    DataFormat: AVRO
+    Description: !Ref SchemaDescription
+    Name: !Ref SchemaName
+    Registry: {
+        
+       Name: !Ref RegistryNameforYourSchema
+}
+    SchemaDefinition: !Ref SchemaDefinitionDetails
+    Tags: 
+     - Key: name
+       Value: BFA
+
+ 
