@@ -1,0 +1,167 @@
+Description: This IaC for Account Microservice
+
+Parameters:
+  TemplateBucket:
+    Description: S3 bucket to download the templates
+    Type: String
+    Default: cloud
+
+  CPListenerRulePriority:
+    Description: The Listener Rule Priority
+    Type: String
+    Default: 2
+  RootStackName:
+    Description: Root stack name
+    Type: String
+
+  PWRFleetRootStackName:
+    Description: PWR Root stack name
+    Type: String
+  
+  DeploymentType:
+    Description: Deployment type
+    Type: String
+
+  SecurityStackName:
+    Description: Security stack name
+    Type: String
+
+  ContainerImageTag:
+    Description: Container image tag
+    Type: String
+
+Conditions:
+  CreatePrdResources: !Equals [!Ref DeploymentType, "prd"]
+  CreateDevResources: !Equals [!Ref DeploymentType, "dev"]
+
+Resources:
+  AccountCPECSCluster:
+    Type: AWS::CloudFormation::Stack
+    Condition: CreatePrdResources
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/ecs/capacity-provider/ecs-cp-cluster-new-relic.yaml
+      Parameters:
+        Cluster: !Join ['-', [!Ref 'RootStackName', 'acc-cp']]
+        KeyPairName: home
+        InstanceType: t3.small
+        DesiredClusterSize: !If [CreatePrdResources, 7, 3]
+        MaxClusterSize: 20
+        VPC:
+          Fn::ImportValue:
+            !Join [':', [!Ref 'SecurityStackName', 'VPCId']]
+        PrivateSubnets:
+          Fn::ImportValue:
+            !Join [':', [!Ref 'SecurityStackName', 'PrivateSubnetIds']]
+        HeadSecurityGroup:
+          Fn::ImportValue:
+            !Join [':', [!Ref 'SecurityStackName', 'BastionSecurityGroup']]
+        NewRelicKey: '{{resolve:secretsmanager:NewRelicKey:SecretString:NewRelicKey}}'
+        
+        
+  AccountCPEDEVCSCluster:
+    Type: AWS::CloudFormation::Stack
+    Condition: CreateDevResources
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/ecs/capacity-provider/ecs-cp-cluster-new-relic.yaml
+      Parameters:
+        Cluster: !Join ['-', [!Ref 'RootStackName', 'acc-dev']]
+        KeyPairName: home
+        InstanceType: t3.small
+        AsgMaxSize: 2
+        SpotPrice: 0.05
+        VPC:
+          Fn::ImportValue:
+            !Join [':', [!Ref 'SecurityStackName', 'VPCId']]
+        PrivateSubnets:
+          Fn::ImportValue:
+            !Join [':', [!Ref 'SecurityStackName', 'PrivateSubnetIds']]
+        HeadSecurityGroup:
+          Fn::ImportValue:
+            !Join [':', [!Ref 'SecurityStackName', 'BastionSecurityGroup']]
+        NewRelicKey: '{{resolve:secretsmanager:NewRelicKey:SecretString:NewRelicKey}}'
+
+  AccountTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${AWS::StackName}
+      TaskRoleArn:
+        !Join [ "", [ "arn:aws:iam::123456:role/", 'Fn::ImportValue': !Join [':', [!Ref 'RootStackName', 'S3TaskRole']], "" ] ]
+      ContainerDefinitions:
+        - Name: account
+          Essential: true
+          Image: !Join ['', ['123456.dkr.ecr.us-east.amazonaws.com/account-microservice:', !Ref 'ContainerImageTag']]
+          Memory: 1954
+          Cpu: 2048
+          MountPoints:
+          - SourceVolume: newreliclogs
+            ContainerPath: /newrelic/logs
+          PortMappings:
+            - ContainerPort: 8011
+          LogConfiguration:
+            LogDriver: 'json-file'
+            Options:
+              max-size: 1g
+              max-file: 3
+          Environment:
+            - Name: _JAVA_OPTIONS
+              Value: -XX:+UnlockExperimentalVMOptions -XX:+UseCGroupMemoryLimitForHeap -XX:MaxRAMFraction=2
+            - Name: ACTIVE_CONFIG
+              Value: production
+            - Name: USER_MICROSERVICE_URL
+              Value: !Join [ "", [ "http://", 'Fn::ImportValue': !Join [':', [!Ref 'RootStackName', 'InternalBalancerRecordSet']], "/user-ms/v1/users" ] ]
+              ###
+            - Name: NEW_RELIC_LICENSE_KEY
+              Value: '{{resolve:secretsmanager:NewRelicKey:SecretString:NewRelicKey}}'
+            - Name: NEW_RELIC_APP_NAME
+              Value: !Ref AWS::StackName
+      Volumes:
+        - Name: newreliclogs
+
+  AccountCPECSService:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub https://s3.amazonaws.com/${TemplateBucket}/ecs/capacity-provider/ecs-cp-service.yaml
+      Parameters:
+        HealthEndpoint: /acc/actuator/health
+        LoadBalancer:
+          Fn::ImportValue:
+            !Join [':', [!Ref 'RootStackName', 'LoadBalancerArn'] ]
+        LoadBalancerListener:
+          Fn::ImportValue:
+            !Join [':', [!Ref 'RootStackName', 'LoadBalancerListener']]
+        Cluster: !If [CreatePrdResources, !GetAtt AccountCPECSCluster.Outputs.ECSCluster, !GetAtt AccountCPEDEVCSCluster.Outputs.ECSCluster]
+        ContainerPort: 8011
+        ContainerName: account
+        TaskDefinition: !Ref AccountTaskDefinition
+        DesiredCount: !If [CreatePrdResources, 2, 1]
+        MaxCapacity: !If [CreatePrdResources, 4, 2]
+        MinCapacity: !If [CreatePrdResources, 2, 1]
+        PathPattern: /accounts/*
+        ListenerRulePriority: !Ref CPListenerRulePriority
+        VPC:
+          Fn::ImportValue:
+            !Join [':', [!Ref 'SecurityStackName', 'VPCId']]
+
+Outputs:
+
+  AccountCPECSService:
+    Description: The Account CP ECS Service
+    Value: !Ref AccountCPECSService
+
+  AccountCPECSCluster:
+    Condition: CreatePrdResources
+    Description: The Account CP ECS Cluster
+    Value: !GetAtt AccountCPECSCluster.Outputs.ECSCluster
+    Export:
+      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'AccountCPECSCluster' ] ]
+      
+  AccountCPEDEVCSCluster:
+    Condition: CreateDevResources
+    Description: The Account CP ECS Cluster
+    Value: !GetAtt AccountCPEDEVCSCluster.Outputs.ECSCluster
+    Export:
+      Name: !Join [ ':', [ !Ref 'AWS::StackName', 'AccountCPEDEVCSCluster' ] ]
+
+  AccountTaskDefinition:
+    Description: The Account Service Task Definition
+    Value: !Ref AccountTaskDefinition
