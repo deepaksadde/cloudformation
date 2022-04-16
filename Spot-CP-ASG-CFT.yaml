@@ -1,0 +1,334 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS CloudFormation template to create ECS Cluster with spot instances
+Parameters:
+  Cluster:
+    Type: String
+    Description: Specifies the ECS Cluster Name     
+  ECSAMI:
+    Type: String
+    Description: ECS-Optimized AMI ID
+    Default: /aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id
+  InstanceType:
+    AllowedValues:
+    - t3.small
+    - t3.micro
+    Default: t3.small
+    Description: EC2 instance type to use for ECS cluster
+    Type: String
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Key pair name required for tunneling (ssh) to the ec2 instances
+  VPC:
+    Type: AWS::EC2::VPC::Id
+    Description: The ECS cluster VPC 
+    Default: ''
+  PrivateSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: The neurio private subnets
+    Default: ''
+    
+  HeadSecurityGroup:
+    Description: Head node security group
+    Type: AWS::EC2::SecurityGroup::Id
+    Default: sg-1233546
+    
+  AsgMaxSize:
+    Type: Number
+    Description: Specifies the number of instances to launch and register to the cluster.
+    Default: '2'
+    
+    
+  IamRoleInstanceProfile:
+    Type: String
+    Description: Specifies the Name or the Amazon Resource Name (ARN) of the instance profile associated with the IAM role for the instance
+    Default: 'arn:aws:iam::647587844964:instance-profile/EC2containerInstancerole'
+  EbsVolumeSize:
+    Type: Number
+    Description: Specifies the Size in GBs of the data storage EBS volume
+    Default: 30
+  EbsVolumeType:
+    Type: String
+    Description: Specifies the Type of (Amazon EBS) volume
+    Default: 'gp2'
+    AllowedValues:
+      - ''
+      - standard
+      - io1
+      - gp2
+      - sc1
+      - st1
+    ConstraintDescription: Must be a valid EC2 volume type.
+  DeviceName:
+    Type: String
+    Description: Optional - Specifies the device mapping for the root EBS volume.
+    Default: /dev/xvda
+  IamSpotFleetRoleArn:
+    Type: String
+    Default: 'arn:aws:iam::647587844964:role/aws-service-role/spotfleet.amazonaws.com/AWSServiceRoleForEC2SpotFleet'
+  SpotPrice:
+    Type: String
+    Default: '0.004'
+  SpotAllocationStrategy:
+    Type: String
+    Default: 'lowest-price'
+    AllowedValues:
+      - 'lowest-price'
+      - 'capacity-optimized'
+  MaxClusterScalingStep:
+    Description: The maximum new ec2 instances a cluster can create when an alarm is triggered
+    Type: Number
+    Default: 3
+    
+  NewRelicKey:
+    Description: The New Relic API key
+    Type: String
+  
+  OwnerTag:
+    Description: Value of owner tag
+    Type: String
+
+  DepartmentTag:
+    Description: Value of department tag
+    Type: String
+
+  EnvironmentTag:
+    Description: Value of environment tag
+    Type: String
+
+  ComponentTag:
+    Description: Value of component tag
+    Type: String
+
+  ProductTag:
+    Description: Value of product tag
+    Type: String
+
+  ApplicationTag:
+    Description: Value of application tag
+    Type: String
+
+  SecurityTag:
+    Description: Value of security tag
+    Type: String
+    
+Conditions:
+  CreateEC2LCWithKeyPair:
+    !Not [!Equals [!Ref KeyPairName, '']]
+  CreateWithSpotPrice: !Not [!Equals [!Ref SpotPrice, '']]
+Resources:
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    DependsOn: DefaultECSCapacityProvider
+    Properties:
+      ClusterName: !Ref Cluster
+      CapacityProviders:
+      - !Ref DefaultECSCapacityProvider
+      DefaultCapacityProviderStrategy:
+      - CapacityProvider: !Ref DefaultECSCapacityProvider
+        Base: 1
+        Weight: 100
+      Tags:
+      - Key: Owner
+        Value: !Ref OwnerTag
+      - Key: Environment
+        Value: !Ref EnvironmentTag
+      - Key: Component
+        Value: !Ref ComponentTag
+      - Key: Product
+        Value: !Ref ProductTag
+      - Key: Application
+        Value: !Ref ApplicationTag
+      - Key: Department
+        Value: !Ref DepartmentTag
+      - Key: Security
+        Value: !Ref SecurityTag
+
+  DefaultECSCapacityProvider:
+    Type: AWS::ECS::CapacityProvider
+    Properties:
+      AutoScalingGroupProvider:
+        AutoScalingGroupArn: !Ref ECSAutoScalingGroup
+        ManagedScaling:
+          MaximumScalingStepSize: !Ref MaxClusterScalingStep
+          Status: ENABLED
+          # this is the a value between 0-100, indicates utilization %
+          TargetCapacity: 100
+        #ManagedTerminationProtection: ENABLED
+      Name: !Join [ '-' , [ !Ref Cluster, 'DefaultECSCapacityProvider']]
+      Tags:
+      - Key: Owner
+        Value: !Ref OwnerTag
+      - Key: Environment
+        Value: !Ref EnvironmentTag
+      - Key: Component
+        Value: !Ref ComponentTag
+      - Key: Product
+        Value: !Ref ProductTag
+      - Key: Application
+        Value: !Ref ApplicationTag
+      - Key: Department
+        Value: !Ref DepartmentTag    
+        
+  ECSHostSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: Access to the ECS instances and the tasks/containers that run on them
+      SecurityGroupIngress:
+      - SourceSecurityGroupId: !Ref HeadSecurityGroup
+        IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+      - CidrIp: 0.0.0.0/0
+        IpProtocol: -1
+      Tags:
+      - Key: Owner
+        Value: !Ref OwnerTag
+      - Key: Environment
+        Value: !Ref EnvironmentTag
+      - Key: Component
+        Value: !Ref ComponentTag
+      - Key: Product
+        Value: !Ref ProductTag
+      - Key: Application
+        Value: !Ref ApplicationTag
+      - Key: Security
+        Value: !Ref SecurityTag
+      - Key: Department
+        Value: !Ref DepartmentTag
+  ECSAutoScalingGroup: 
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      MinSize: "1"
+      MaxSize: !Ref AsgMaxSize
+      DesiredCapacity: !Ref AsgMaxSize
+      HealthCheckGracePeriod: 300 
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplateConf
+        Version: !GetAtt LaunchTemplateConf.LatestVersionNumber
+     
+      VPCZoneIdentifier: !Ref PrivateSubnets
+      Tags:
+      - Key: Owner
+        Value: !Ref OwnerTag
+        PropagateAtLaunch: "true"
+      - Key: Environment
+        Value: !Ref EnvironmentTag
+        PropagateAtLaunch: "true"
+      - Key: Component
+        Value: !Ref ComponentTag
+        PropagateAtLaunch: "true"
+      - Key: Product
+        Value: !Ref ProductTag
+        PropagateAtLaunch: "true"
+      - Key: Application
+        Value: !Ref ApplicationTag
+        PropagateAtLaunch: "true"
+      - Key: Department
+        Value: !Ref DepartmentTag
+        PropagateAtLaunch: "true"
+        
+  LaunchTemplateConf:
+    Type: AWS::EC2::LaunchTemplate
+    Properties: 
+      LaunchTemplateData: 
+        ImageId: !Ref ECSAMI
+        InstanceType: !Ref InstanceType
+        IamInstanceProfile: 
+          Arn: !Ref IamRoleInstanceProfile
+        KeyName:  !Ref KeyPairName
+        Monitoring: 
+          Enabled: true
+        SecurityGroupIds: 
+          - !Ref ECSHostSecurityGroup
+        BlockDeviceMappings:
+          - DeviceName: !Ref DeviceName
+            Ebs:
+             VolumeSize: !Ref EbsVolumeSize
+             VolumeType: !Ref EbsVolumeType
+        InstanceMarketOptions:
+            MarketType: spot
+            SpotOptions: 
+              InstanceInterruptionBehavior: terminate
+              MaxPrice: !Ref SpotPrice
+              SpotInstanceType: one-time
+        UserData:
+          Fn::Base64: !Sub |
+                        #!/bin/bash
+                        export PATH=/usr/local/bin:$PATH
+                        yum -y --security update
+                        yum -y install jq
+                        easy_install pip
+                        pip install awscli
+                        aws configure set default.region ${AWS::Region}
+                        echo ECS_CLUSTER=${Cluster} >> /etc/ecs/ecs.config
+                    
+                        # Create a configuration file and add your license key \
+                        echo "license_key: ${NewRelicKey}" | sudo tee -a /etc/newrelic-infra.yml && \
+                        \
+                        # Create the agent's yum repository \
+                        sudo curl -o /etc/yum.repos.d/newrelic-infra.repo https://download.newrelic.com/infrastructure_agent/linux/yum/el/7/x86_64/newrelic-infra.repo && \
+                        \
+                        # Update your yum cache \
+                        sudo yum -q makecache -y --disablerepo='*' --enablerepo='newrelic-infra' && \
+                        \
+                        # Run the installation script \
+                        sudo yum install newrelic-infra -y
+
+                        sudo touch /etc/newrelic-infra/logging.d/log.yml
+                        sudo tee -a /etc/newrelic-infra/logging.d/log.yml > /dev/null <<EOF
+                        logs:
+                          - name: "app_log"
+                          file: /var/lib/docker/volumes/*/*/*.log
+                        EOF
+ 
+
+                        cat <<EOF > /etc/init/spot-instance-termination-notice-handler.conf
+                        description "Start spot instance termination handler monitoring script"
+                        author "Amazon Web Services"
+                        start on started ecs
+                        script
+                        echo \$\$ > /var/run/spot-instance-termination-notice-handler.pid
+                        exec /usr/local/bin/spot-instance-termination-notice-handler.sh
+                        end script
+                        pre-start script
+                        logger "[spot-instance-termination-notice-handler.sh]: spot instance termination notice handler started"
+                        end script
+                        EOF
+
+                        cat <<EOF > /usr/local/bin/spot-instance-termination-notice-handler.sh
+                        #!/bin/bash
+                        while sleep 5; do
+                        if [ -z \$(curl -Isf http://169.254.169.254/latest/meta-data/spot/termination-time)];
+                        then
+                        /bin/false
+                        else
+                        logger "[spot-instance-termination-notice-handler.sh]: spot instance termination notice detected"
+                        STATUS=DRAINING
+                        ECS_CLUSTER=\$(curl -s http://localhost:51678/v1/metadata | jq .Cluster | tr -d \")
+                        CONTAINER_INSTANCE=\$(curl -s http://localhost:51678/v1/metadata | jq .ContainerInstanceArn | tr -d \")
+                        logger "[spot-instance-termination-notice-handler.sh]: putting instance in state $STATUS"
+                        logger "[spot-instance-termination-notice-handler.sh]: running: /bin/aws ecs update-container-instances-state --cluster \$ECS_CLUSTER --container-instances $CONTAINER_INSTANCE --status \$STATUS"
+                        /bin/aws ecs update-container-instances-state --cluster $ECS_CLUSTER --container-instances \$CONTAINER_INSTANCE --status \$STATUS
+                        logger "[spot-instance-termination-notice-handler.sh]: putting myself to sleep..."
+                        sleep 120
+                        fi
+                        done
+                        EOF
+
+                        chmod +x /usr/local/bin/spot-instance-termination-notice-handler.sh'
+
+              
+  
+                      
+Outputs:
+  UsedByECSCreateCluster:
+    Description: Flag used by ECS Create Cluster Wizard
+    Value: 'true'
+  TemplateVersion:
+    Description: The version of the template used by Create Cluster Wizard
+    Value: '2.0.0'
+    
+    
+    
+    
